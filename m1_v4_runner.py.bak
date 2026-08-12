@@ -271,11 +271,9 @@ def main():
             # MetaAPI historical candles may include the currently forming
             # M1 candle. The last candle is intentionally excluded from entry.
             completed = candles[:-1]
-            # Use the latest completed M1 candle instead of the
-            # MetaAPI RPC price call, which can hang on Termux.
-            candle_price = float(completed[-1]["close"])
-            bid = candle_price
-            ask = candle_price
+            quote = market.price(SYMBOL)
+            bid = float(quote["bid"])
+            ask = float(quote["ask"])
 
             manage_position(bid, ask)
 

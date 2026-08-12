@@ -1,15 +1,17 @@
 import os
 import asyncio
-from datetime import datetime, timezone
+import threading
+from concurrent.futures import Future
 
 from metaapi_cloud_sdk import MetaApi
 
 
 class MetaAPIMarket:
     """
-    Persistent synchronous wrapper around MetaApi async SDK.
+    Persistent MetaApi market-data connection.
 
-    One MetaApi/RPC connection is maintained for the lifetime of this object.
+    Keeps one MetaApi SDK/account/RPC connection alive instead of
+    creating a new websocket client on every candles()/price() call.
     """
 
     def __init__(self, token=None, account_id=None):
@@ -17,116 +19,141 @@ class MetaAPIMarket:
         self.account_id = account_id or os.getenv("METAAPI_ACCOUNT_ID")
 
         if not self.token:
-            raise RuntimeError(
-                "METAAPI_TOKEN is not set."
-            )
+            raise RuntimeError("METAAPI_TOKEN is not set")
 
         if not self.account_id:
-            raise RuntimeError(
-                "METAAPI_ACCOUNT_ID is not set."
-            )
+            raise RuntimeError("METAAPI_ACCOUNT_ID is not set")
 
-        self._api = None
-        self._account_obj = None
-        self._connection = None
-        self._ready = False
+        self.api = None
+        self.account = None
+        self.connection = None
 
-    async def _connect(self):
-        if self._ready and self._connection is not None:
-            return
-
-        self._api = MetaApi(self.token)
-
-        self._account_obj = (
-            await self._api.metatrader_account_api.get_account(
-                self.account_id
-            )
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(
+            target=self._loop_worker,
+            daemon=True,
+            name="metaapi-market-loop",
         )
+        self._thread.start()
 
-        await self._account_obj.wait_connected()
-
-        self._connection = self._account_obj.get_rpc_connection()
-
-        await self._connection.connect()
-        await self._connection.wait_synchronized()
-
-        self._ready = True
+        self._run(self._connect())
 
         print(
-            f"MetaAPI MARKET CONNECTED | "
+            "MetaAPI MARKET CONNECTED | "
             f"account={self.account_id}"
         )
 
-    async def _candles_async(self, symbol, limit):
-        await self._connect()
-
-        try:
-            return await self._account_obj.get_historical_candles(
-                symbol=symbol,
-                timeframe="1m",
-                start_time=None,
-                limit=int(limit),
-            )
-
-        except Exception:
-            # Connection may have died. Force reconnect on next request.
-            self._ready = False
-            raise
-
-    async def _price_async(self, symbol):
-        await self._connect()
-
-        try:
-            p = await self._connection.get_symbol_price(symbol)
-
-            return {
-                "symbol": symbol,
-                "bid": float(p.get("bid", 0.0)),
-                "ask": float(p.get("ask", 0.0)),
-                "time": p.get("time"),
-            }
-
-        except Exception:
-            self._ready = False
-            raise
+    def _loop_worker(self):
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
 
     def _run(self, coro):
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coro)
+        future = asyncio.run_coroutine_threadsafe(
+            coro,
+            self._loop,
+        )
+        return future.result()
 
-        import concurrent.futures
+    async def _connect(self):
+        self.api = MetaApi(self.token)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            return ex.submit(asyncio.run, coro).result()
-
-    def candles(self, symbol, limit=200):
-        rows = self._run(
-            self._candles_async(symbol, limit)
+        self.account = await self.api.metatrader_account_api.get_account(
+            self.account_id
         )
 
-        out = []
+        await self.account.wait_connected()
 
-        for c in rows:
-            out.append({
+        self.connection = self.account.get_rpc_connection()
+
+        await self.connection.connect()
+        await self.connection.wait_synchronized()
+
+    async def _candles_async(self, symbol, limit):
+        candles = await self.account.get_historical_candles(
+            symbol=symbol,
+            timeframe="1m",
+            start_time=None,
+            limit=int(limit),
+        )
+
+        return [
+            {
                 "time": c.get("time") or c.get("brokerTime"),
                 "open": float(c["open"]),
                 "high": float(c["high"]),
                 "low": float(c["low"]),
                 "close": float(c["close"]),
                 "volume": float(
-                    c.get(
-                        "volume",
-                        c.get("tickVolume", 0)
-                    )
+                    c.get("volume", c.get("tickVolume", 0))
                 ),
                 "spread": float(c.get("spread", 0)),
-            })
+            }
+            for c in candles
+        ]
 
-        return out
+    async def _price_async(self, symbol):
+        p = await self.connection.get_symbol_price(symbol)
+
+        return {
+            "symbol": symbol,
+            "bid": float(p.get("bid", 0.0)),
+            "ask": float(p.get("ask", 0.0)),
+            "time": p.get("time"),
+        }
+
+    def candles(self, symbol, limit=200):
+        return self._run(
+            self._candles_async(symbol, limit)
+        )
 
     def price(self, symbol):
         return self._run(
             self._price_async(symbol)
         )
+
+    def close(self):
+        """
+        Cleanly close the RPC connection and MetaApi SDK.
+        """
+        if self._loop.is_closed():
+            return
+
+        async def _close():
+            try:
+                if self.connection:
+                    await self.connection.close()
+            except Exception as e:
+                print("MetaAPI RPC CLOSE WARNING:", repr(e))
+
+            try:
+                if self.api:
+                    result = self.api.close()
+
+                    if asyncio.iscoroutine(result):
+                        await result
+            except Exception as e:
+                print("MetaAPI SDK CLOSE WARNING:", repr(e))
+
+        try:
+            self._run(_close())
+        finally:
+            self._loop.call_soon_threadsafe(
+                self._loop.stop
+            )
+
+            if self._thread.is_alive():
+                self._thread.join(timeout=5)
+
+            self._loop.close()
+
+            self.connection = None
+            self.account = None
+            self.api = None
+
+            print("MetaAPI MARKET CLOSED")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()

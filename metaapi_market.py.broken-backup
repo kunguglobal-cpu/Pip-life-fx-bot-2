@@ -1,0 +1,120 @@
+import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+from metaapi_cloud_sdk import MetaApi
+
+
+class MetaAPIMarket:
+    """
+    Persistent MetaAPI market-data connection.
+
+    Keeps one MetaAPI connection alive instead of reconnecting
+    for every candles()/price() request.
+    """
+
+    def __init__(self, token=None, account_id=None):
+        self.token = token or os.getenv("METAAPI_TOKEN")
+        self.account_id = account_id or os.getenv(
+            "METAAPI_ACCOUNT_ID",
+            "8d8060b6-8963-4795-a51a-c8c7d49ea574",
+        )
+
+        if not self.token:
+            raise RuntimeError("METAAPI_TOKEN is not set")
+
+        if not self.account_id:
+            raise RuntimeError("METAAPI_ACCOUNT_ID is not set")
+
+        self.api = None
+        self.account = None
+        self.connection = None
+
+        self.executor = ThreadPoolExecutor(max_workers=1)
+
+        self._start()
+
+    def _start(self):
+        asyncio.run(self._connect())
+
+    async def _connect(self):
+        print("MetaAPI MARKET | connecting...")
+
+        self.api = MetaApi(self.token)
+
+        self.account = await self.api.metatrader_account_api.get_account(
+            self.account_id
+        )
+
+        await self.account.wait_connected()
+
+        self.connection = self.account.get_rpc_connection()
+
+        await self.connection.connect()
+        await self.connection.wait_synchronized()
+
+        print(
+            f"MetaAPI MARKET CONNECTED | account={self.account_id}"
+        )
+
+    def _run(self, coro):
+        return self.executor.submit(
+            asyncio.run,
+            coro
+        ).result(timeout=30)
+
+    async def _candles_async(self, symbol, limit):
+        candles = await self.account.get_historical_candles(
+            symbol=symbol,
+            timeframe="1m",
+            start_time=None,
+            limit=int(limit),
+        )
+
+        return candles
+
+    async def _price_async(self, symbol):
+        p = await self.connection.get_symbol_price(symbol)
+
+        return {
+            "symbol": symbol,
+            "bid": float(p.get("bid", 0.0)),
+            "ask": float(p.get("ask", 0.0)),
+            "time": p.get("time"),
+        }
+
+    def candles(self, symbol, limit=200):
+        rows = self._run(
+            self._candles_async(symbol, limit)
+        )
+
+        out = []
+
+        for c in rows:
+            out.append({
+                "time": c.get("time") or c.get("brokerTime"),
+                "open": float(c["open"]),
+                "high": float(c["high"]),
+                "low": float(c["low"]),
+                "close": float(c["close"]),
+                "volume": float(
+                    c.get("volume", c.get("tickVolume", 0))
+                ),
+                "spread": float(c.get("spread", 0)),
+            })
+
+        return out
+
+    def price(self, symbol):
+        return self._run(
+            self._price_async(symbol)
+        )
+
+    def close(self):
+        try:
+            self.executor.shutdown(
+                wait=False,
+                cancel_futures=True
+            )
+        except Exception:
+            pass

@@ -1,0 +1,24 @@
+nohup: ignoring input
+[2026-08-12T23:24:58.830544] [INFO] Connecting MetaApi websocket client to the MetaApi server via https://mt-client-api-pwpm4hvay8s8dr48.london-a.agiliumtrade.ai dedicated server. Please note that it can take up to 3 minutes for your dedicated server to start for the first time. During this time it is OK if you see some connection errors.  
+[2026-08-12T23:24:58.837046] [INFO] Connecting MetaApi websocket client to the MetaApi server via https://mt-client-api-pwpm4hvay8s8dr48.london-b.agiliumtrade.ai dedicated server.  
+[2026-08-12T23:25:00.007799] [INFO] london:1: MetaApi websocket client connected to the MetaApi server  
+[2026-08-12T23:25:00.637846] [INFO] london:0: MetaApi websocket client connected to the MetaApi server  
+MetaAPI MARKET CONNECTED | account=8d8060b6-8963-4795-a51a-c8c7d49ea574
+========================================================================
+ M1 XAUUSD V4 — M5 ZONE / M1 CONFIRMATION RUNNER
+========================================================================
+RULE: M5 structure -> M5 FVG/OB/Breaker -> M1 rejection/engulfing -> entry -> BE -> trail
+DRY_RUN=True | INITIAL_SL=300pts | BE=300pts | TRAIL=300pts | POINT_SIZE=0.01
+V4 SCAN | 2026-08-12 20:24:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:25:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:26:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:27:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:28:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:29:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:30:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:31:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:32:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:33:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:31:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:32:00+00:00 | no M1 confirmation
+V4 SCAN | 2026-08-12 20:33:00+00:00 | no M1 confirmation
