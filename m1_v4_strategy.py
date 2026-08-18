@@ -46,15 +46,24 @@ def aggregate_m5(m1_candles):
             continue
 
         try:
-            if isinstance(t, str):
+            if isinstance(t, dt.datetime):
+                ts = t
+
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=dt.timezone.utc)
+
+            elif isinstance(t, str):
                 ts = dt.datetime.fromisoformat(
                     t.replace("Z", "+00:00")
                 )
+
             else:
                 ts = dt.datetime.fromtimestamp(
                     float(t),
                     tz=dt.timezone.utc
                 )
+
+            ts = ts.astimezone(dt.timezone.utc)
 
             ts = ts.replace(
                 minute=(ts.minute // 5) * 5,

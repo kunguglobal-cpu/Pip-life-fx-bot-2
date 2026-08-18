@@ -4,7 +4,9 @@ import time
 from metaapi_market import MetaAPIMarket
 from metaapi_trade import MetaAPITrade
 from m1_risk_manager import calculate_lot_size, risk_percent
+import m1_v4_strategy as v4_strategy
 from m1_v4_strategy import find_entry
+from m1_v4_velocity import confirm_m1_velocity
 
 
 SYMBOL = os.getenv("M1_SYMBOL", "XAUUSD")
@@ -40,6 +42,11 @@ SL_BUFFER = float(os.getenv("M1_V4_SL_BUFFER", "0.05"))
 
 market = MetaAPIMarket()
 trade = MetaAPITrade(dry_run=DRY_RUN)
+
+# V4 velocity-expansion confirmation
+# Replaces the restrictive M1 rejection/engulfing confirmation.
+v4_strategy.confirm_m1 = confirm_m1_velocity
+
 
 state = {
     "position_id": None,
@@ -297,7 +304,7 @@ def main():
                     else:
                         print(
                             f"V4 SCAN | {current_completed_time} | "
-                            "no M1 confirmation"
+                            "no M1 velocity expansion"
                         )
 
             time.sleep(POLL_SECONDS)
